@@ -1,48 +1,46 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-测试orchestrator基线模式回测
-使用较小的数据集进行快速验证
+"""scripts/run_orchestrator_baseline.py
+
+Runnable baseline smoke script for quick local CI validation. Uses
+`logging` instead of prints and creates a small dataset for the test.
 """
 import sys
-import io
+import logging
 import pandas as pd
+
+# ensure repo root on sys.path for local imports
+sys.path.insert(0, '.')
 
 from orchestrator import ABCDEOrchestrator
 
-# 设置UTF-8编码（在导入之后）
-if hasattr(sys.stdout, 'buffer') and not isinstance(sys.stdout, io.TextIOWrapper):
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logger = logging.getLogger("run_orchestrator_baseline")
+
     try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    except:
-        pass
+        logger.info("准备测试数据...")
+        df = pd.read_csv('data/BTCUSDT_15.csv')
+        df_small = df.head(1000)
+        df_small.to_csv('data/BTCUSDT_15_test.csv', index=False)
+        logger.info("测试数据已创建: %d bars", len(df_small))
 
-# 创建小数据集（前1000行）
-print("准备测试数据...")
-df = pd.read_csv('data/BTCUSDT_15.csv')
-df_small = df.head(1000)
-df_small.to_csv('data/BTCUSDT_15_test.csv', index=False)
-print(f"测试数据已创建: {len(df_small)} bars")
+        logger.info("开始基线模式回测测试")
+        orch = ABCDEOrchestrator(mode='baseline')
+        results = orch.run_backtest(
+            data_path='data/BTCUSDT_15_test.csv',
+            output_dir='results/test_baseline'
+        )
 
-# 运行基线模式
-print("\n" + "=" * 80)
-print("开始基线模式回测测试")
-print("=" * 80)
+        logger.info("✓ 基线模式回测测试成功!")
+        logger.info("  总交易: %s", results.get('total_trades', 0))
+        logger.info("  总收益: %.2f%%", results.get('total_return', 0))
+        logger.info("  胜率: %.2f%%", results.get('win_rate', 0))
+        logger.info("  Sharpe: %.2f", results.get('sharpe_ratio', 0))
 
-try:
-    orch = ABCDEOrchestrator(mode='baseline')
-    results = orch.run_backtest(
-        data_path='data/BTCUSDT_15_test.csv',
-        output_dir='results/test_baseline'
-    )
+    except Exception:
+        logger.exception("✗ 基线模式测试失败")
 
-    print("\n✓ 基线模式回测测试成功!")
-    print(f"  总交易: {results.get('total_trades', 0)}")
-    print(f"  总收益: {results.get('total_return', 0):.2f}%")
-    print(f"  胜率: {results.get('win_rate', 0):.2f}%")
-    print(f"  Sharpe: {results.get('sharpe_ratio', 0):.2f}")
 
-except Exception as e:
-    print(f"\n✗ 错误: {e}")
-    import traceback
-    traceback.print_exc()
+if __name__ == '__main__':
+    main()

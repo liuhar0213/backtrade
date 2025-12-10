@@ -1,72 +1,66 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-测试orchestrator自适应模式回测
-验证D层监督和Genome层参数演化
+"""scripts/run_orchestrator_adaptive.py
+
+Runnable adaptive-mode smoke script for local CI. Uses logging and
+creates a larger dataset to trigger supervision logic.
 """
 import sys
-import io
+import logging
 import pandas as pd
+
+# ensure repo root on sys.path for local imports
+sys.path.insert(0, '.')
 
 from orchestrator import ABCDEOrchestrator
 
-# 设置UTF-8编码（在导入之后）
-if hasattr(sys.stdout, 'buffer') and not isinstance(sys.stdout, io.TextIOWrapper):
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logger = logging.getLogger("run_orchestrator_adaptive")
+
     try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    except:
-        pass
+        logger.info("准备测试数据...")
+        df = pd.read_csv('data/BTCUSDT_15.csv')
+        df_test = df.head(2000)  # 使用2000 bars以覆盖多个监督周期
+        df_test.to_csv('data/BTCUSDT_15_adaptive_test.csv', index=False)
+        logger.info("测试数据已创建: %d bars", len(df_test))
+        logger.info("将触发监督检查: %d 次（每50 bars）", len(df_test) // 50)
 
-# 创建测试数据（更大数据集以触发监督）
-print("准备测试数据...")
-df = pd.read_csv('data/BTCUSDT_15.csv')
-df_test = df.head(2000)  # 使用2000 bars以覆盖多个监督周期
-df_test.to_csv('data/BTCUSDT_15_adaptive_test.csv', index=False)
-print(f"测试数据已创建: {len(df_test)} bars")
-print(f"  将触发监督检查: {len(df_test) // 50} 次（每50 bars）")
+        logger.info("开始自适应模式回测测试")
+        orch = ABCDEOrchestrator(mode='adaptive')
+        results = orch.run_backtest(
+            data_path='data/BTCUSDT_15_adaptive_test.csv',
+            output_dir='results/test_adaptive'
+        )
 
-# 运行自适应模式
-print("\n" + "=" * 80)
-print("开始自适应模式回测测试")
-print("=" * 80)
+        logger.info("✓ 自适应模式回测测试成功!")
+        logger.info("  总交易: %s", results.get('total_trades', 0))
+        logger.info("  总收益: %.2f%%", results.get('total_return', 0))
+        logger.info("  胜率: %.2f%%", results.get('win_rate', 0))
+        logger.info("  Sharpe: %.2f", results.get('sharpe_ratio', 0))
 
-try:
-    orch = ABCDEOrchestrator(mode='adaptive')
-    results = orch.run_backtest(
-        data_path='data/BTCUSDT_15_adaptive_test.csv',
-        output_dir='results/test_adaptive'
-    )
+        # 检查监督历史
+        supervision_history = results.get('supervision_history', [])
+        logger.info("监督检查: 触发次数=%d", len(supervision_history))
 
-    print("\n✓ 自适应模式回测测试成功!")
-    print(f"  总交易: {results.get('total_trades', 0)}")
-    print(f"  总收益: {results.get('total_return', 0):.2f}%")
-    print(f"  胜率: {results.get('win_rate', 0):.2f}%")
-    print(f"  Sharpe: {results.get('sharpe_ratio', 0):.2f}")
+        if len(supervision_history) > 0:
+            logger.info("首次检查: bar %s", supervision_history[0]['bar'])
+            logger.info("末次检查: bar %s", supervision_history[-1]['bar'])
+            total_suggestions = sum(s['suggestions'] for s in supervision_history)
+            logger.info("总建议数: %d", total_suggestions)
 
-    # 检查监督历史
-    supervision_history = results.get('supervision_history', [])
-    print(f"\n监督检查:")
-    print(f"  触发次数: {len(supervision_history)}")
+        # 检查版本演化
+        from Genome.version_tracker import VersionTracker
+        tracker = VersionTracker()
+        versions = tracker.version_tree.get('versions', [])
+        logger.info("参数演化: 版本数=%d", len(versions))
+        if len(versions) > 1:
+            logger.info("初始版本: %s", versions[0]['version'])
+            logger.info("最新版本: %s", versions[-1]['version'])
 
-    if len(supervision_history) > 0:
-        print(f"  首次检查: bar {supervision_history[0]['bar']}")
-        print(f"  末次检查: bar {supervision_history[-1]['bar']}")
+    except Exception:
+        logger.exception("✗ 自适应模式测试失败")
 
-        # 统计建议数量
-        total_suggestions = sum(s['suggestions'] for s in supervision_history)
-        print(f"  总建议数: {total_suggestions}")
 
-    # 检查版本演化
-    from Genome.version_tracker import VersionTracker
-    tracker = VersionTracker()
-    versions = tracker.version_tree['versions']
-    print(f"\n参数演化:")
-    print(f"  版本数: {len(versions)}")
-    if len(versions) > 1:
-        print(f"  初始版本: {versions[0]['version']}")
-        print(f"  最新版本: {versions[-1]['version']}")
-
-except Exception as e:
-    print(f"\n✗ 错误: {e}")
-    import traceback
-    traceback.print_exc()
+if __name__ == '__main__':
+    main()
