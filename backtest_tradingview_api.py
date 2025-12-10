@@ -1,7 +1,7 @@
 import os
-import runpy
+import subprocess
 import sys
-import types
+import tempfile
 from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 
@@ -10,73 +10,81 @@ LEGACY_SCRIPT = os.path.join(REPO_ROOT, 'backtest_tradingview_patterns.py')
 DATA_DIR = os.path.join(REPO_ROOT, 'data')
 DEFAULT_CSV = os.path.join(DATA_DIR, 'ETHUSDT_15.csv')
 
+# Path to the dummy detector module we'll create for testing
+DUMMY_DETECTOR_CODE = '''
+import pandas as pd
 
-def _inject_dummy_detector(df: pd.DataFrame):
-    """Place a dummy `tradingview_patterns_optimized` module into sys.modules
-    so the legacy script's import resolves to a detector that returns a
-    simple patterns DataFrame for testing.
-    """
-    mod = types.SimpleNamespace()
+class TradingViewPatternDetectorOptimized:
+    def __init__(self, df, trend_rule='SMA50'):
+        self.df = df
 
-    class DummyDetector:
-        def __init__(self, df_arg, trend_rule='SMA50'):
-            # legacy code passes the full dataframe; keep a copy
-            self.df = df_arg
-
-        def detect_all_patterns(self):
-            # produce a DataFrame of boolean signals, one column with a
-            # single True somewhere safe
-            s = pd.Series([False] * len(self.df))
-            if len(self.df) > 5:
-                s.iloc[min(10, len(self.df)-1)] = True
-            return pd.DataFrame({'DummyPattern': s})
-
-    mod.TradingViewPatternDetectorOptimized = DummyDetector
-    sys.modules['tradingview_patterns_optimized'] = mod
+    def detect_all_patterns(self):
+        s = pd.Series([False] * len(self.df))
+        if len(self.df) > 5:
+            s.iloc[min(10, len(self.df)-1)] = True
+        return pd.DataFrame({'DummyPattern': s})
+'''
 
 
 def run_backtests(df: Optional[pd.DataFrame] = None, csv_path: Optional[str] = None, save_csv: bool = False) -> Tuple[list, Dict[str, Any]]:
-    """Run the legacy `backtest_tradingview_patterns.py` with a dummy detector.
+    """Run the legacy `backtest_tradingview_patterns.py` in a subprocess with a dummy detector.
 
     If `df` is provided it will be saved to `data/ETHUSDT_15.csv` and used.
-    Returns (results_list, results_df_dict) where results_list is the list of
-    per-pattern result dicts and results_df_dict is the pandas DataFrame
-    converted to a dict (if available).
+    Returns (results_list, results_df) where results_list is a list of dicts.
     """
     # Ensure data dir exists
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    tmp_path = None
+    # Create the dummy detector module file
+    dummy_detector_path = os.path.join(REPO_ROOT, 'tradingview_patterns_optimized.py')
+    detector_existed = os.path.exists(dummy_detector_path)
+    original_content = None
+    if detector_existed:
+        with open(dummy_detector_path, 'r', encoding='utf-8') as f:
+            original_content = f.read()
+
     try:
         if df is not None:
-            # save to expected location
-            tmp_path = DEFAULT_CSV
-            df.to_csv(tmp_path, index=False)
-            csv_to_use = tmp_path
-        elif csv_path is not None:
-            csv_to_use = csv_path
-        else:
-            csv_to_use = DEFAULT_CSV
+            df.to_csv(DEFAULT_CSV, index=False)
+        elif csv_path is not None and os.path.abspath(csv_path) != os.path.abspath(DEFAULT_CSV):
+            pd.read_csv(csv_path).to_csv(DEFAULT_CSV, index=False)
 
-        # inject dummy detector module so legacy import resolves
-        _inject_dummy_detector(pd.read_csv(csv_to_use))
+        # Write dummy detector module
+        with open(dummy_detector_path, 'w', encoding='utf-8') as f:
+            f.write(DUMMY_DETECTOR_CODE)
 
-        ns = runpy.run_path(LEGACY_SCRIPT, run_name='__main__')
+        # Run the legacy script in a subprocess
+        result = subprocess.run(
+            [sys.executable, LEGACY_SCRIPT],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=120,
+            encoding='utf-8',
+            errors='replace',
+        )
+        # Print output for visibility (pytest will capture)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
 
-        # legacy script populates 'all_results' and/or 'results_df'
-        all_results = ns.get('all_results', None)
-        results_df = ns.get('results_df', None)
+        # Check for output CSV
+        results_csv = os.path.join(REPO_ROOT, 'tradingview_backtest_results.csv')
+        results_list = []
+        results_df = None
+        if os.path.exists(results_csv):
+            results_df = pd.read_csv(results_csv)
+            results_list = results_df.to_dict(orient='records')
 
-        if results_df is not None:
-            try:
-                results_dict = results_df.to_dict(orient='records')
-            except Exception:
-                results_dict = []
-        else:
-            results_dict = all_results or []
-
-        return results_dict, ns.get('results_df', None)
+        return results_list, results_df
 
     finally:
-        # don't remove csv by default to aid debugging; callers can remove
-        pass
+        # Restore or remove the dummy detector module
+        if original_content is not None:
+            with open(dummy_detector_path, 'w', encoding='utf-8') as f:
+                f.write(original_content)
+        elif not detector_existed and os.path.exists(dummy_detector_path):
+            try:
+                os.remove(dummy_detector_path)
+            except Exception:
+                pass

@@ -1,5 +1,6 @@
 import os
-import runpy
+import sys
+import subprocess
 import tempfile
 import pandas as pd
 from typing import Optional, Tuple, Dict, Any
@@ -9,48 +10,50 @@ LEGACY_SCRIPT = os.path.join(REPO_ROOT, 'backtest_with_sessions.py')
 
 
 def run_backtests(df: Optional[pd.DataFrame] = None, csv_path: Optional[str] = None, cleanup: bool = True) -> Tuple[list, Dict[str, Any]]:
-    """Run the legacy `backtest_with_sessions.py` in an isolated namespace.
+    """Run the legacy `backtest_with_sessions.py` in a subprocess.
 
     If `df` is provided, it will be written to a temporary CSV and that path
     will be passed to the script. If `csv_path` is provided it will be used
-    instead. Returns (trades_list, summary_dict) if available from the script's
-    globals; otherwise returns ([], {}).
+    instead. Returns (trades_list, summary_dict).
     """
     tmp_file = None
+    expected_csv = os.path.join(REPO_ROOT, 'LINKUSDT_8h_2020-01-01_to_2025-11-09.csv')
     try:
         if df is not None:
-            tmp_fd, tmp_file = tempfile.mkstemp(prefix='bws_', suffix='.csv', dir=REPO_ROOT)
-            os.close(tmp_fd)
-            df.to_csv(tmp_file, index=False)
-            csv_to_use = tmp_file
-        elif csv_path is not None:
-            csv_to_use = csv_path
-        else:
-            # default file expected by the legacy script
-            csv_to_use = os.path.join(REPO_ROOT, 'LINKUSDT_8h_2020-01-01_to_2025-11-09.csv')
+            df.to_csv(expected_csv, index=False)
+        elif csv_path is not None and os.path.abspath(csv_path) != os.path.abspath(expected_csv):
+            pd.read_csv(csv_path).to_csv(expected_csv, index=False)
 
-        # The legacy script expects a specific filename; many scripts reference the CSV directly.
-        # To ensure it uses our csv_to_use, set CWD to REPO_ROOT and set an expected filename if needed.
-        # We'll call runpy.run_path to execute the script and capture its globals.
-        ns = runpy.run_path(LEGACY_SCRIPT, run_name='__main__')
+        # Run the legacy script in a subprocess to isolate stdout reassignment
+        result = subprocess.run(
+            [sys.executable, LEGACY_SCRIPT],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=120,
+            encoding='utf-8',
+            errors='replace',
+        )
+        # Print output for visibility (pytest will capture)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
 
-        # Try to extract common results
-        trades = ns.get('trades', None) or ns.get('trades_df', None) or ns.get('all_trades', None) or []
-        # If trades is a DataFrame, convert to list of dicts
-        if hasattr(trades, 'to_dict'):
-            trades_list = trades.to_dict(orient='records')
-        elif isinstance(trades, list):
-            trades_list = trades
-        else:
-            trades_list = []
+        # Try to read the output CSV if script saved one
+        output_csv = os.path.join(REPO_ROOT, 'backtest_with_sessions.csv')
+        trades_list = []
+        if os.path.exists(output_csv):
+            trades_df = pd.read_csv(output_csv)
+            trades_list = trades_df.to_dict(orient='records')
 
-        summary = ns.get('summary', None) or ns.get('pattern_stats', None) or {}
-
+        summary = {'returncode': result.returncode}
         return trades_list, summary
 
     finally:
-        if cleanup and tmp_file and os.path.exists(tmp_file):
-            try:
-                os.remove(tmp_file)
-            except Exception:
-                pass
+        if cleanup:
+            for f in [expected_csv, os.path.join(REPO_ROOT, 'backtest_with_sessions.csv')]:
+                try:
+                    if os.path.exists(f):
+                        os.remove(f)
+                except Exception:
+                    pass

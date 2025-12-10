@@ -1,5 +1,6 @@
 import os
-import runpy
+import sys
+import subprocess
 from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 
@@ -9,48 +10,49 @@ EXPECTED_CSV = os.path.join(REPO_ROOT, 'LINKUSDT_8h_2020-01-01_to_2025-11-09.csv
 
 
 def run_backtests(df: Optional[pd.DataFrame] = None, csv_path: Optional[str] = None, cleanup: bool = True) -> Tuple[list, Dict[str, Any]]:
-    """Run the legacy vol_supertrend sessions script using a provided DataFrame or CSV.
+    """Run the legacy vol_supertrend sessions script in a subprocess.
 
     If `df` is provided it will be saved to the expected filename used by the legacy script.
-    Returns (trades_list, extra_results) if available from the script's globals.
+    Returns (trades_list, extra_results).
     """
-    tmp_file = None
     try:
         if df is not None:
             df.to_csv(EXPECTED_CSV, index=False)
-            csv_to_use = EXPECTED_CSV
         elif csv_path is not None:
-            # copy or ensure path matches expected name
             if os.path.abspath(csv_path) != os.path.abspath(EXPECTED_CSV):
-                # copy to expected location
                 pd.read_csv(csv_path).to_csv(EXPECTED_CSV, index=False)
-            csv_to_use = EXPECTED_CSV
-        else:
-            csv_to_use = EXPECTED_CSV
 
-        ns = runpy.run_path(LEGACY_SCRIPT, run_name='__main__')
+        # Run the legacy script in a subprocess to isolate stdout reassignment
+        result = subprocess.run(
+            [sys.executable, LEGACY_SCRIPT],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=120,
+            encoding='utf-8',
+            errors='replace',
+        )
+        # Print output for visibility (pytest will capture)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
 
-        # try to extract typical variables
-        trades = ns.get('trades', None) or ns.get('trades_df', None) or ns.get('trades', [])
-        equity_curve = ns.get('equity_curve', None)
+        # Check for any output CSV the script might have saved
+        trades_list = []
+        for csv_name in ['backtest_vol_supertrend_sessions.csv', 'trades.csv']:
+            output_csv = os.path.join(REPO_ROOT, csv_name)
+            if os.path.exists(output_csv):
+                trades_df = pd.read_csv(output_csv)
+                trades_list = trades_df.to_dict(orient='records')
+                break
 
-        # normalize trades to list of dicts
-        if hasattr(trades, 'to_dict'):
-            trades_list = trades.to_dict(orient='records')
-        elif isinstance(trades, list):
-            trades_list = trades
-        else:
-            trades_list = []
-
-        extra = {}
-        if equity_curve is not None:
-            extra['equity_curve'] = equity_curve
-
+        extra = {'returncode': result.returncode}
         return trades_list, extra
     finally:
         if cleanup:
-            try:
-                if os.path.exists(EXPECTED_CSV):
-                    os.remove(EXPECTED_CSV)
-            except Exception:
-                pass
+            for f in [EXPECTED_CSV]:
+                try:
+                    if os.path.exists(f):
+                        os.remove(f)
+                except Exception:
+                    pass

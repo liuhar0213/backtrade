@@ -10,7 +10,9 @@ import numpy as np
 import sys
 import io
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# Avoid reassigning stdout at import time (breaks pytest terminal I/O).
+if __name__ == '__main__':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # ========== 参数配置 (完全对应TradingView) ==========
 ATR_PERIOD = 10
