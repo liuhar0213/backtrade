@@ -1,35 +1,41 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-Supertrend策略三版本对比测试
-
-测试市场: ETH/BNB/SOL
-测试版本:
-  1. 原版Supertrend
-  2. Supertrend + ADX过滤
-  3. Supertrend完整优化版
-"""
-
 import sys
-import io
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+import logging
+from supertrend import SupertrendStrategy
+from data_loader import load_klines
 
-import pandas as pd
-import numpy as np
-from pathlib import Path
-
-from strategies.supertrend_strategy import (
-    SupertrendStrategy,
-    SupertrendADXStrategy,
-    SupertrendFullStrategy
-)
-from engine.backtest import SimpleBacktester
-from engine.costing import CostEngine
-from engine.allocator import PositionAllocator
+# ensure repo root on sys.path
+sys.path.insert(0, '.')
 
 
-def load_data(symbol: str, timeframe: str = '60') -> pd.DataFrame:
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logger = logging.getLogger("run_supertrend")
+
+    logger.info("Supertrend策略回测测试")
+    symbol = 'BTCUSDT'
+    timeframe = '15m'
+
+    try:
+        df = load_klines(symbol, timeframe)
+        logger.info("加载 %s %s 数据: %d 条", symbol, timeframe, len(df))
+    except Exception as e:
+        logger.exception("数据加载失败")
+        return
+
+    strat = SupertrendStrategy(df)
+    logger.info("策略初始化完成，开始回测...")
+    try:
+        res = strat.run_backtest()
+        logger.info("回测完成")
+        logger.info("回测摘要:\n%s", res.summary())
+    except Exception:
+        logger.exception("回测执行出错")
+
+
+if __name__ == '__main__':
+    main()
     """加载数据"""
     print(f"\n[LOAD] Loading {symbol} {timeframe}h data...")
     data_file = f"data/BINANCE_{symbol}USDT.P, {timeframe}.csv"

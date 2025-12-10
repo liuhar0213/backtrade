@@ -5,45 +5,39 @@
 """
 
 import sys
+import logging
 import pandas as pd
 from tradingview_patterns import TradingViewPatternDetector
 
-# 设置UTF-8输出
-if sys.platform == 'win32':
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# ensure repo root on sys.path
+sys.path.insert(0, '.')
 
 
 def main():
-    print("=" * 80)
-    print("TradingView标准K线形态检测器 - 测试")
-    print("=" * 80)
-    print()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logger = logging.getLogger("run_tradingview_patterns")
+
+    logger.info("TradingView标准K线形态检测器 - 测试")
 
     # 加载数据
     try:
         df = pd.read_csv('data/ETHUSDT_15.csv')
-        print(f"数据加载成功: {len(df)} 根K线")
+        logger.info("数据加载成功: %d 根K线", len(df))
     except Exception as e:
-        print(f"数据加载失败: {e}")
+        logger.exception("数据加载失败")
         return
 
     # 创建检测器
-    print("初始化检测器（使用SMA50趋势判断）...")
+    logger.info("初始化检测器（使用SMA50趋势判断）...")
     detector = TradingViewPatternDetector(df, trend_rule='SMA50')
-    print("初始化完成！")
-    print()
+    logger.info("初始化完成！")
 
     # 检测所有形态
-    print("正在检测所有42个形态...")
+    logger.info("正在检测所有42个形态...")
     patterns = detector.detect_all_patterns()
     summary = detector.get_pattern_summary()
 
-    print()
-    print("=" * 80)
-    print(f"检测完成！共发现 {len(summary)} 种形态，总计 {sum(summary.values())} 次出现")
-    print("=" * 80)
-    print()
+    logger.info("检测完成！共发现 %d 种形态，总计 %d 次出现", len(summary), sum(summary.values()))
 
     # 分类统计
     bullish_count = 0
@@ -71,33 +65,20 @@ def main():
             neutral_patterns.append((pattern, count))
             neutral_count += count
 
-    # 展示结果
-    print("【看涨形态】")
-    print(f"共 {len(bullish_patterns)} 种，{bullish_count} 次出现")
-    print("-" * 80)
+    # 展示结果 (日志输出)
+    logger.info("【看涨形态】 共 %d 种，%d 次出现", len(bullish_patterns), bullish_count)
     for pattern, count in sorted(bullish_patterns, key=lambda x: -x[1]):
-        print(f"  {pattern:35s} : {count:5d} 次")
-    print()
+        logger.info("  %s : %d 次", pattern, count)
 
-    print("【看跌形态】")
-    print(f"共 {len(bearish_patterns)} 种，{bearish_count} 次出现")
-    print("-" * 80)
+    logger.info("【看跌形态】 共 %d 种，%d 次出现", len(bearish_patterns), bearish_count)
     for pattern, count in sorted(bearish_patterns, key=lambda x: -x[1]):
-        print(f"  {pattern:35s} : {count:5d} 次")
-    print()
+        logger.info("  %s : %d 次", pattern, count)
 
-    print("【中性/延续形态】")
-    print(f"共 {len(neutral_patterns)} 种，{neutral_count} 次出现")
-    print("-" * 80)
+    logger.info("【中性/延续形态】 共 %d 种，%d 次出现", len(neutral_patterns), neutral_count)
     for pattern, count in sorted(neutral_patterns, key=lambda x: -x[1]):
-        print(f"  {pattern:35s} : {count:5d} 次")
-    print()
+        logger.info("  %s : %d 次", pattern, count)
 
     # 对比原有实现
-    print("=" * 80)
-    print("与原有实现对比（关键形态）")
-    print("=" * 80)
-
     key_patterns = {
         'Hammer': '锤形线',
         'Shooting_Star': '射击之星',
@@ -111,12 +92,7 @@ def main():
 
     for eng, chn in key_patterns.items():
         count = summary.get(eng, 0)
-        print(f"{chn:15s} ({eng:25s}) : {count:5d} 次")
-
-    print()
-    print("=" * 80)
-    print("检测完成！")
-    print("=" * 80)
+        logger.info("%s (%s) : %d 次", chn, eng, count)
 
 
 if __name__ == '__main__':
