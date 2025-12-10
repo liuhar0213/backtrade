@@ -3,7 +3,7 @@ from backtest_simple import run_backtest
 
 
 def make_synthetic_df(n=30):
-    times = pd.date_range('2020-01-01', periods=n, freq='H')
+    times = pd.date_range('2020-01-01', periods=n, freq='h')
     # create a gentle price walk
     base = 100.0
     close = [base + i * 0.5 for i in range(n)]

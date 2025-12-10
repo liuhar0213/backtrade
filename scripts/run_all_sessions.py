@@ -9,7 +9,9 @@ import numpy as np
 import sys
 import io
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# Avoid reassigning stdout at import time (breaks pytest terminal I/O).
+if __name__ == '__main__':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def run_backtest(session_config_name, session_func):
     """运行回测"""

@@ -4,7 +4,7 @@ from backtest_tradingview_api import run_backtests
 
 
 def make_synthetic_df(n=60):
-    times = pd.date_range('2020-01-01', periods=n, freq='H')
+    times = pd.date_range('2020-01-01', periods=n, freq='h')
     base = 200.0
     close = [base + 0.2 * i for i in range(n)]
     df = pd.DataFrame({

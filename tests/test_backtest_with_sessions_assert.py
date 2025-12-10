@@ -4,7 +4,7 @@ from backtest_with_sessions_api import run_backtests
 
 
 def make_synthetic_sessions_df(n=120):
-    times = pd.date_range('2020-01-01', periods=n, freq='8H')
+    times = pd.date_range('2020-01-01', periods=n, freq='8h')
     base = 50.0
     close = [base + 0.1 * i for i in range(n)]
     df = pd.DataFrame({

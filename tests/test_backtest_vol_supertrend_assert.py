@@ -4,7 +4,7 @@ from backtest_vol_supertrend_api import run_backtests
 
 
 def make_synthetic_df(n=120):
-    times = pd.date_range('2020-01-01', periods=n, freq='8H')
+    times = pd.date_range('2020-01-01', periods=n, freq='8h')
     base = 10.0
     close = [base + 0.05 * i for i in range(n)]
     df = pd.DataFrame({
