@@ -23,10 +23,29 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run smoke scripts
-        run: |
-          python scripts/run_orchestrator_init.py
-
       - name: Run pytest
         run: |
           pytest -q
+
+      - name: Import runner modules (lightweight smoke)
+        run: |
+          python - <<'PY'
+          import importlib
+          modules = [
+              'scripts.run_quick_backtest',
+              'scripts.run_backtest_with_fees',
+              'scripts.run_backtest_with_sessions',
+              'scripts.run_backtest_tradingview_patterns',
+              'scripts.run_backtest_vol_supertrend_sessions',
+          ]
+          ok = True
+          for m in modules:
+              try:
+                  importlib.import_module(m)
+                  print(f'imported {m}')
+              except Exception as e:
+                  print(f'FAILED to import {m}:', e)
+                  ok = False
+          if not ok:
+              raise SystemExit('One or more runner modules failed to import')
+          PY
